@@ -156,7 +156,6 @@ if prediksi_btn:
     # -----------------------------
     # BLOK C — Grafik Dinamis (Prediksi 7 hari terakhir)
     # -----------------------------
-    st.subheader("📈 Grafik Risk Score (H-6 → H-0)")
 
     # Sliding window untuk 7 hari terakhir
     feature_cols = ["curah_hujan","kelembapan_tanah","rain_3d","rain_7d","rain_14d"]
@@ -179,10 +178,11 @@ if prediksi_btn:
         status_today = "Waspada 🟡"
     else:
         status_today = "Siaga 🔴"
-
     # -----------------------------
     # BLOK A — Status Peringatan (Card besar)
     # -----------------------------
+    st.subheader("🔮 Nilai Index Risiko")
+    
     st.markdown(f"""
     <div style="background-color: {'#4CAF50' if risk_score_today<0.6 else '#FFC107' if risk_score_today<0.75 else '#F44336'}; 
                 color:white; padding:20px; border-radius:10px; font-size:24px; text-align:center;">
@@ -203,6 +203,8 @@ if prediksi_btn:
     # -----------------------------
     # Grafik
     # -----------------------------
+    st.subheader("📈 Grafik Risk Score (H-6 → H-0)")
+    
     days = df_last7["Tanggal"].iloc[-len(risk_history):].dt.strftime("%Y-%m-%d").tolist()
 
     fig, ax = plt.subplots(figsize=(8,4))
@@ -222,3 +224,4 @@ if prediksi_btn:
     df_display = df_last7.iloc[-len(risk_history):].copy()
     df_display["Risk Score"] = np.round(risk_history,2)
     st.dataframe(df_display)
+
