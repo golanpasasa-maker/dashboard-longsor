@@ -22,20 +22,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------------------------------------------------
-# HEADER UTAMA
-# ---------------------------------------------------------
-st.title("🌋 Dashboard Peringatan Dini Tanah Longsor")
-
-st.markdown(
-    """
-    **Berbasis Deep Learning (LSTM)**  
-    Time Window: **7 Hari** | Lokasi Studi: **Makale**
-    """
-)
-
-st.divider()
-
 # =========================================================
 # LOAD MODEL & SCALER
 # =========================================================
@@ -66,29 +52,50 @@ model, scaler = load_model_and_scaler()
 
 st.success("✅ Model & Scaler berhasil dimuat")
 
+# ---------------------------------------------------------
+# HEADER UTAMA
+# ---------------------------------------------------------
+st.title("🌋 Dashboard Peringatan Dini Tanah Longsor")
+
+st.markdown(
+    """
+    Berbasis Deep Learning (LSTM)
+    """
+    """
+    Lokasi Studi: Kab.Tana Toraja Kec.Makale
+    """
+    """
+    Model: Long Short-Term Memory (LSTM)
+    """
+    """
+    Peneliti: Golan Prabu pasasa & Guido Arung Sallata Putra
+    """
+)
+
+st.divider()
+
 # =========================================================
 # INPUT DATA
 # =========================================================
 
-
-st.header("📊 Dashboard Prediksi Risiko Longsor")
+st.header("📊 Input Data")
 
 st.markdown("""
 ### 🔹 Format CSV yang Wajib
 
-CSV berisi data historis **7 hari terakhir**
+CSV berisi data historis **14 hari terakhir**
 
 **Kolom wajib:**
 - `Tanggal`
 - `curah_hujan`
 - `kelembapan_tanah`
 
-📌 Minimal **7 baris**  
+📌 Minimal **14 baris**  
 📌 Data akan diurutkan otomatis berdasarkan tanggal
 """)
 
 uploaded_file = st.file_uploader(
-    "Upload file CSV (minimal 7 hari terakhir)",
+    "Upload file CSV (minimal 14 hari terakhir)",
     type=["csv"]
 )
 
@@ -103,6 +110,7 @@ df = pd.read_csv(uploaded_file)
 # -----------------------------
 required_cols = ["Tanggal", "curah_hujan", "kelembapan_tanah"]
 missing = [c for c in required_cols if c not in df.columns]
+
 if missing:
     st.error(f"❌ Kolom CSV tidak lengkap: {missing}")
     st.stop()
@@ -110,9 +118,16 @@ if missing:
 # -----------------------------
 # Validasi jumlah baris
 # -----------------------------
-if len(df) < 7:
-    st.error("❌ CSV harus berisi minimal 7 baris")
+if len(df) < 14:
+    st.error("❌ CSV harus berisi minimal 14 baris")
     st.stop()
+
+# -----------------------------
+# Jumlah data historis
+# -----------------------------
+jumlah_data = len(df)
+
+st.info(f"📊 Data historis tersedia: {jumlah_data} hari → maksimal prediksi {jumlah_data} hari berikutnya")
 
 # -----------------------------
 # Urutkan tanggal
@@ -121,107 +136,191 @@ df["Tanggal"] = pd.to_datetime(df["Tanggal"])
 df = df.sort_values("Tanggal").reset_index(drop=True)
 
 # -----------------------------
-# Hitung rain_3d, rain_7d, rain_14d otomatis
+# Pastikan numeric
 # -----------------------------
-# Pastikan kolom numeric
 df["curah_hujan"] = pd.to_numeric(df["curah_hujan"], errors="coerce").fillna(0)
 df["kelembapan_tanah"] = pd.to_numeric(df["kelembapan_tanah"], errors="coerce").fillna(0)
 
-# Hitung rain_3d / 7d / 14d
-df["rain_3d"] = df["curah_hujan"].rolling(window=3, min_periods=1).sum()
-df["rain_7d"] = df["curah_hujan"].rolling(window=7, min_periods=1).sum()
-df["rain_14d"] = df["curah_hujan"].rolling(window=14, min_periods=1).sum()
+# -----------------------------
+# Hitung fitur agregasi
+# -----------------------------
+df["rain_3d"] = df["curah_hujan"].rolling(3, min_periods=1).sum()
+df["rain_7d"] = df["curah_hujan"].rolling(7, min_periods=1).sum()
+df["rain_14d"] = df["curah_hujan"].rolling(14, min_periods=1).sum()
 
-# Ambil 7 hari terakhir
-df_last7 = df.tail(7).reset_index(drop=True)
-st.dataframe(df_last7)  
+# -----------------------------
+# Ambil 7 hari terakhir untuk model
+# -----------------------------
+df_model_input = df.tail(jumlah_data).reset_index(drop=True)
+
+st.subheader("📅 Data Input Model")
+st.dataframe(df_model_input)
+
+# =========================================================
+# INPUT JUMLAH HARI PREDIKSI
+# =========================================================
+
+jumlah_prediksi = st.number_input(
+    f"Jumlah hari prediksi ke depan (maks {jumlah_data})",
+    min_value=1,
+    max_value=jumlah_data,
+    value=min(7, jumlah_data),
+    step=1,
+    help="Jumlah prediksi maksimal sama dengan jumlah data historis"
+)
+
 
 # =========================================================
 # TOMBOL PREDIKSI & ALUR LSTM
 # =========================================================
 
-# Tombol aktif hanya jika data CSV / manual sudah valid
-data_valid = 'df_last7' in locals() and len(df_last7) == 7
+data_valid = len(df_model_input) >= 7
 
 prediksi_btn = st.button(
     "🚀 Prediksi Risiko Longsor",
     disabled=not data_valid,
-    help="Upload CSV minimal 7 hari agar tombol aktif"
+    help="Upload CSV minimal 14 hari agar tombol aktif"
 )
 
+# =========================================================
+# PROSES PREDIKSI
+# =========================================================
+
 if prediksi_btn:
+
     st.markdown("---")
     st.header("🟢 Hasil Prediksi & Visualisasi")
 
     # -----------------------------
-    # BLOK C — Grafik Dinamis (Prediksi 7 hari terakhir)
+    # FEATURE MODEL
+    # -----------------------------
+    feature_cols = [
+        "curah_hujan",
+        "kelembapan_tanah",
+        "rain_3d",
+        "rain_7d",
+        "rain_14d"
+    ]
+
+    X_all = df_model_input[feature_cols].values
+    X_scaled = scaler.transform(X_all)
+
+    # ambil 7 hari terakhir sebagai input sequence
+    X_seq = X_scaled[-7:]
+    risk_history = []
+
+    # -----------------------------
+    # RECURSIVE FORECASTING REALISTIS
     # -----------------------------
 
-    # Sliding window untuk 7 hari terakhir
-    feature_cols = ["curah_hujan","kelembapan_tanah","rain_3d","rain_7d","rain_14d"]
-    X_all = df_last7[feature_cols].values
-    X_scaled_all = scaler.transform(X_all)
+    # gunakan data asli untuk update rolling rainfall
+    rain_history = df_model_input["curah_hujan"].tolist()
+    soil_history = df_model_input["kelembapan_tanah"].tolist()
+    # safety check
+    jumlah_prediksi = min(jumlah_prediksi, jumlah_data)
 
-    risk_history = []
-    for i in range(len(df_last7)):
-        if i+1 < 7:
-            continue  # skip jika window kurang dari 7
-        X_seq_window = np.expand_dims(X_scaled_all[i-6:i+1], axis=0)
-        pred = model.predict(X_seq_window)[0][0]
+    for _ in range(jumlah_prediksi):
+
+        X_input = np.expand_dims(X_seq, axis=0)
+        pred = model.predict(X_input, verbose=0)[0][0]
         risk_history.append(pred)
 
-    # Ambil risk score terakhir (H-0)
-    risk_score_today = risk_history[-1]
-    if risk_score_today < 0.6:
+        # ====================================
+        # SIMULASI KONDISI HARI BERIKUTNYA
+        # ====================================
+
+        # asumsi hujan = rata-rata 3 hari terakhir
+        next_rain = np.mean(rain_history[-3:])
+
+        # asumsi kelembapan mengikuti hari terakhir
+        next_soil = soil_history[-1]
+
+        rain_history.append(next_rain)
+        soil_history.append(next_soil)
+
+        # hitung rolling rainfall baru
+        rain_3d = sum(rain_history[-3:])
+        rain_7d = sum(rain_history[-7:])
+        rain_14d = sum(rain_history[-14:])
+
+        new_row = np.array([
+            next_rain,
+            next_soil,
+            rain_3d,
+            rain_7d,
+            rain_14d
+        ]).reshape(1, -1)
+
+        # scaling
+        new_row_scaled = scaler.transform(new_row)[0]
+
+        # update sliding window
+        X_seq = np.vstack([X_seq[1:], new_row_scaled])
+
+
+    # =========================================================
+    # BLOK A — STATUS H+1
+    # =========================================================
+    risk_score_today = risk_history[0]
+
+    if risk_score_today < 0.5:
         status_today = "Aman 🟢"
-    elif risk_score_today < 0.75:
-        status_today = "Waspada 🟡"
-    else:
-        status_today = "Siaga 🔴"
-    # -----------------------------
-    # BLOK A — Status Peringatan (Card besar)
-    # -----------------------------
-    st.subheader("🔮 Nilai Index Risiko")
+        warna = "#4CAF50"
+    elif risk_score_today > 0.5 and risk_score_today < 1.0:
+        status_today = "Waspada 🟠"
+        warna = "#FFAA00"
+
     
+    last_date = df_model_input["Tanggal"].iloc[-1]
+
+    tanggal_prediksi = [
+    (last_date + pd.Timedelta(days=i + 1)).strftime("%Y-%m-%d")
+    for i in range(jumlah_prediksi)
+    ]
+    st.subheader(f"🔮 Resiko Tanah Longsor Hari Ke-{jumlah_prediksi}")
+
     st.markdown(f"""
-    <div style="background-color: {'#4CAF50' if risk_score_today<0.6 else '#FFC107' if risk_score_today<0.75 else '#F44336'}; 
-                color:white; padding:20px; border-radius:10px; font-size:24px; text-align:center;">
-        Risk Score: {risk_score_today:.2f} <br>
-        Status: {status_today}
+    <div style="background-color:{warna};
+                color:white; padding:20px;
+                border-radius:10px;
+                font-size:24px;
+                text-align:center;">
+        Status: {status_today} Pada tanggal {tanggal_prediksi[-1]}
     </div>
     """, unsafe_allow_html=True)
 
-    # -----------------------------
-    # BLOK B — Metric Ringkas
-    # -----------------------------
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Risk Score", f"{risk_score_today:.2f}")
-    col2.metric("Time Window", "7 Hari")
-    tanggal_prediksi = df_last7["Tanggal"].iloc[-1].strftime("%Y-%m-%d")
-    col3.metric("Tanggal Prediksi", tanggal_prediksi)
+    # =========================================================
+    # BLOK B — TABEL OUTPUT PREDIKSI
+    # =========================================================
 
-    # -----------------------------
-    # Grafik
-    # -----------------------------
-    st.subheader("📈 Grafik Risk Score (H-6 → H-0)")
-    
-    days = df_last7["Tanggal"].iloc[-len(risk_history):].dt.strftime("%Y-%m-%d").tolist()
+    st.subheader(f"📋 Hasil Prediksi Risiko ({jumlah_prediksi} Hari ke Depan)")
 
-    fig, ax = plt.subplots(figsize=(8,4))
-    ax.plot(days, risk_history, marker='o', label="Risk Score", color='blue')
-    ax.axhline(0.6, color='orange', linestyle='--', label="Aman → Waspada")
-    ax.axhline(0.75, color='red', linestyle='--', label="Waspada → Siaga")
-    ax.set_ylim(0,1)
-    ax.set_ylabel("Risk Score")
-    ax.set_title("Trend Risk Score 7 Hari Terakhir")
-    ax.legend()
-    st.pyplot(fig)
+    last_date = df_model_input["Tanggal"].iloc[-1]
 
-    # -----------------------------
-    # BLOK D — Tabel Data Input + Risk Score
-    # -----------------------------
-    st.subheader("📋 Tabel Data 7 Hari Terakhir")
-    df_display = df_last7.iloc[-len(risk_history):].copy()
-    df_display["Risk Score"] = np.round(risk_history,2)
-    st.dataframe(df_display)
+    tanggal_prediksi = [
+        (last_date + pd.Timedelta(days=i + 1)).strftime("%Y-%m-%d")
+        for i in range(jumlah_prediksi)
+    ]
 
+    df_output = pd.DataFrame({
+        "Hari ke-": np.arange(1, jumlah_prediksi + 1),
+        "Tanggal Prediksi": tanggal_prediksi,
+        "Status Resiko": status_today
+    })
+
+    st.dataframe(
+    df_output.style.set_table_styles([
+        {"selector": "th", "props": [
+            ("text-align", "center"),
+            ("font-size", "24px")
+        ]},
+        {"selector": "td", "props": [
+            ("text-align", "center"),
+            ("font-size", "16px")
+        ]}
+    ]),
+    width="stretch",
+    hide_index=True
+    )
+
+    # =========================================================
